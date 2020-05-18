@@ -29,7 +29,23 @@ class executor;
 
 namespace detail {
 
-inline bool is_native_io_executor(const io_context::executor_type&)
+template <typename T>
+struct is_native_io_executor_type : false_type
+{
+};
+
+template <unsigned int StaticProperties, typename Allocator>
+struct is_native_io_executor_type<
+    io_context::basic_executor_type<StaticProperties, Allocator>
+  > : true_type
+{
+};
+
+template <typename Executor>
+inline bool is_native_io_executor(const Executor&,
+    typename enable_if<
+      is_native_io_executor_type<Executor>::value
+    >::type* = 0)
 {
   return true;
 }
