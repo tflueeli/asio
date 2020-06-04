@@ -19,50 +19,60 @@
 #include "asio/associated_executor.hpp"
 #include "asio/associated_allocator.hpp"
 #include "asio/executor_work_guard.hpp"
+#include "asio/execution/executor.hpp"
+#include "asio/execution/allocator.hpp"
+#include "asio/execution/blocking.hpp"
+#include "asio/execution/outstanding_work.hpp"
+#include "asio/prefer.hpp"
 
 #include "asio/detail/push_options.hpp"
 
 namespace asio {
 namespace detail {
 
-template <typename Handler>
+template <typename Handler, typename Executor>
 class work_dispatcher
 {
 public:
   template <typename CompletionHandler>
-  explicit work_dispatcher(ASIO_MOVE_ARG(CompletionHandler) handler)
-    : work_((get_associated_executor)(handler)),
-      handler_(ASIO_MOVE_CAST(CompletionHandler)(handler))
+  work_dispatcher(ASIO_MOVE_ARG(CompletionHandler) handler,
+      const Executor& handler_ex)
+    : handler_(ASIO_MOVE_CAST(CompletionHandler)(handler)),
+      executor_(asio::prefer(handler_ex,
+          execution::outstanding_work.tracked))
   {
   }
 
 #if defined(ASIO_HAS_MOVE)
   work_dispatcher(const work_dispatcher& other)
-    : work_(other.work_),
-      handler_(other.handler_)
+    : handler_(other.handler_),
+      executor_(other.executor_)
   {
   }
 
   work_dispatcher(work_dispatcher&& other)
-    : work_(ASIO_MOVE_CAST(executor_work_guard<
-        typename associated_executor<Handler>::type>)(other.work_)),
-      handler_(ASIO_MOVE_CAST(Handler)(other.handler_))
+    : handler_(ASIO_MOVE_CAST(Handler)(other.handler_)),
+      executor_(ASIO_MOVE_CAST(work_executor_type)(other.executor_))
   {
   }
 #endif // defined(ASIO_HAS_MOVE)
 
   void operator()()
   {
-    typename associated_allocator<Handler>::type alloc(
-        (get_associated_allocator)(handler_));
-    work_.get_executor().dispatch(
-        ASIO_MOVE_CAST(Handler)(handler_), alloc);
-    work_.reset();
+    execution::execute(
+        asio::prefer(executor_,
+          execution::blocking.possibly,
+          execution::allocator((get_associated_allocator)(handler_))),
+        ASIO_MOVE_CAST(Handler)(handler_));
   }
 
 private:
-  executor_work_guard<typename associated_executor<Handler>::type> work_;
+  typedef typename prefer_result_type<Executor,
+      execution::outstanding_work_t::tracked_t
+    >::type work_executor_type;
+
   Handler handler_;
+  work_executor_type executor_;
 };
 
 } // namespace detail
