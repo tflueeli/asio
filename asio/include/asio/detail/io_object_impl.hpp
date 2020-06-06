@@ -29,14 +29,35 @@ class executor;
 
 namespace detail {
 
-inline bool is_native_io_executor(const io_context::executor_type&)
+template <typename T>
+struct is_native_io_executor_type : false_type
+{
+};
+
+template <typename Blocking, typename Relationship,
+    typename OutstandingWork, typename Allocator>
+struct is_native_io_executor_type<
+    io_context::basic_executor_type<
+      Blocking, Relationship, OutstandingWork, Allocator
+    > > : true_type
+{
+};
+
+template <typename Executor>
+inline bool is_native_io_executor(const Executor&,
+    typename enable_if<
+      is_native_io_executor_type<Executor>::value
+    >::type* = 0)
 {
   return true;
 }
 
 template <typename Executor>
 inline bool is_native_io_executor(const Executor&,
-    typename enable_if<!is_same<Executor, executor>::value>::type* = 0)
+    typename enable_if<
+      !is_native_io_executor_type<Executor>::value
+        && !is_same<Executor, executor>::value
+    >::type* = 0)
 {
   return false;
 }
@@ -67,7 +88,8 @@ public:
   typedef Executor executor_type;
 
   // The type of executor to be used when implementing asynchronous operations.
-  typedef io_object_executor<Executor> implementation_executor_type;
+  typedef io_object_executor<Executor,
+      is_native_io_executor_type<Executor>::value> implementation_executor_type;
 
   // Construct an I/O object using an executor.
   explicit io_object_impl(const executor_type& ex)

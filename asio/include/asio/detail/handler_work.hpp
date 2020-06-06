@@ -17,92 +17,112 @@
 
 #include "asio/detail/config.hpp"
 #include "asio/associated_executor.hpp"
-#include "asio/detail/handler_invoke_helpers.hpp"
+#include "asio/detail/type_traits.hpp"
+#include "asio/execution/allocator.hpp"
+#include "asio/execution/blocking.hpp"
+#include "asio/execution/execute.hpp"
+#include "asio/execution/executor.hpp"
+#include "asio/execution/outstanding_work.hpp"
+#include "asio/executor_work_guard.hpp"
+#include "asio/prefer.hpp"
 
 #include "asio/detail/push_options.hpp"
 
 namespace asio {
 namespace detail {
 
-// A helper class template to allow completion handlers to be dispatched
-// through either the new executors framework or the old invocaton hook. The
-// primary template uses the new executors framework.
-template <typename Handler,
-    typename IoExecutor = system_executor, typename HandlerExecutor
-      = typename associated_executor<Handler, IoExecutor>::type>
-class handler_work
+template <typename IoExecutor, typename = void>
+class handler_work_io_executor
 {
 public:
-  explicit handler_work(Handler& handler) ASIO_NOEXCEPT
-    : io_executor_(),
-      executor_(asio::get_associated_executor(handler, io_executor_))
+  explicit handler_work_io_executor(const IoExecutor& io_ex)
+    : io_executor_(asio::prefer(io_ex,
+          execution::outstanding_work.tracked))
   {
   }
 
-  handler_work(Handler& handler, const IoExecutor& io_ex) ASIO_NOEXCEPT
-    : io_executor_(io_ex),
-      executor_(asio::get_associated_executor(handler, io_executor_))
+private:
+  typename decay<
+      typename prefer_result_type<IoExecutor,
+        execution::outstanding_work_t::tracked_t
+      >::type
+    >::type io_executor_;
+};
+
+template <typename IoExecutor>
+class handler_work_io_executor<IoExecutor,
+    typename enable_if<
+      !execution::is_executor<IoExecutor>::value
+    >::type>
+{
+public:
+  explicit handler_work_io_executor(const IoExecutor& io_ex) ASIO_NOEXCEPT
+    : io_executor_(io_ex)
   {
   }
 
-  static void start(Handler& handler) ASIO_NOEXCEPT
+private:
+  executor_work_guard<IoExecutor> io_executor_;
+};
+
+template <typename Handler, typename IoExecutor, typename = void>
+class handler_work : public handler_work_io_executor<IoExecutor>
+{
+public:
+  handler_work(Handler& handler, const IoExecutor& io_ex)
+    : handler_work_io_executor<IoExecutor>(io_ex),
+      executor_(asio::prefer(
+            (get_associated_executor)(handler, io_ex),
+            execution::allocator((get_associated_allocator)(handler)),
+            execution::blocking.possibly,
+            execution::outstanding_work.tracked))
   {
-    HandlerExecutor ex(asio::get_associated_executor(handler));
-    ex.on_work_started();
   }
 
-  static void start(Handler& handler,
-      const IoExecutor& io_ex) ASIO_NOEXCEPT
+  template <typename Function>
+  void complete(Function& function, Handler&)
   {
-    HandlerExecutor ex(asio::get_associated_executor(handler, io_ex));
-    ex.on_work_started();
-    io_ex.on_work_started();
+    execution::execute(executor_, ASIO_MOVE_CAST(Function)(function));
   }
 
-  ~handler_work()
+private:
+  typename decay<
+      typename prefer_result_type<
+        typename associated_executor<Handler, IoExecutor>::type,
+        execution::allocator_t<typename associated_allocator<Handler>::type>,
+        execution::blocking_t::possibly_t,
+        execution::outstanding_work_t::tracked_t
+      >::type
+    >::type executor_;
+};
+
+template <typename Handler, typename IoExecutor>
+class handler_work<Handler, IoExecutor,
+    typename enable_if<
+      !execution::is_executor<
+        typename associated_executor<Handler, IoExecutor>::type
+      >::value
+    >::type> : public handler_work_io_executor<IoExecutor>
+{
+public:
+  handler_work(Handler& handler, const IoExecutor& io_ex)
+    : handler_work_io_executor<IoExecutor>(io_ex),
+      work_((get_associated_executor)(handler, io_ex))
   {
-    io_executor_.on_work_finished();
-    executor_.on_work_finished();
   }
 
   template <typename Function>
   void complete(Function& function, Handler& handler)
   {
-    executor_.dispatch(ASIO_MOVE_CAST(Function)(function),
+    work_.get_executor().dispatch(
+        ASIO_MOVE_CAST(Function)(function),
         asio::get_associated_allocator(handler));
   }
 
 private:
-  // Disallow copying and assignment.
-  handler_work(const handler_work&);
-  handler_work& operator=(const handler_work&);
-
-  IoExecutor io_executor_;
-  HandlerExecutor executor_;
-};
-
-// This specialisation dispatches a handler through the old invocation hook.
-// The specialisation is not strictly required for correctness, as the
-// system_executor will dispatch through the hook anyway. However, by doing
-// this we avoid an extra copy of the handler.
-template <typename Handler>
-class handler_work<Handler, system_executor, system_executor>
-{
-public:
-  explicit handler_work(Handler&) ASIO_NOEXCEPT {}
-  static void start(Handler&) ASIO_NOEXCEPT {}
-  ~handler_work() {}
-
-  template <typename Function>
-  void complete(Function& function, Handler& handler)
-  {
-    asio_handler_invoke_helpers::invoke(function, handler);
-  }
-
-private:
-  // Disallow copying and assignment.
-  handler_work(const handler_work&);
-  handler_work& operator=(const handler_work&);
+  executor_work_guard<
+      typename associated_executor<Handler, IoExecutor>::type
+    > work_;
 };
 
 } // namespace detail
