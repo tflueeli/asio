@@ -52,7 +52,10 @@ inline bool is_native_io_executor(const Executor&,
 
 template <typename Executor>
 inline bool is_native_io_executor(const Executor&,
-    typename enable_if<!is_same<Executor, executor>::value>::type* = 0)
+    typename enable_if<
+      !is_native_io_executor_type<Executor>::value
+        && !is_same<Executor, executor>::value
+    >::type* = 0)
 {
   return false;
 }
@@ -83,7 +86,8 @@ public:
   typedef Executor executor_type;
 
   // The type of executor to be used when implementing asynchronous operations.
-  typedef io_object_executor<Executor> implementation_executor_type;
+  typedef io_object_executor<Executor,
+      is_native_io_executor_type<Executor>::value> implementation_executor_type;
 
   // Construct an I/O object using an executor.
   explicit io_object_impl(const executor_type& ex)

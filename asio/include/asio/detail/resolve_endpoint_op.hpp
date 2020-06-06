@@ -21,7 +21,7 @@
 #include "asio/detail/bind_handler.hpp"
 #include "asio/detail/fenced_block.hpp"
 #include "asio/detail/handler_alloc_helpers.hpp"
-#include "asio/detail/handler_invoke_helpers.hpp"
+#include "asio/detail/handler_work.hpp"
 #include "asio/detail/memory.hpp"
 #include "asio/detail/resolve_op.hpp"
 #include "asio/detail/socket_ops.hpp"
@@ -60,9 +60,8 @@ public:
       endpoint_(endpoint),
       scheduler_(sched),
       handler_(ASIO_MOVE_CAST(Handler)(handler)),
-      io_executor_(io_ex)
+      work_(handler_, io_ex)
   {
-    handler_work<Handler, IoExecutor>::start(handler_, io_executor_);
   }
 
   static void do_complete(void* owner, operation* base,
@@ -95,10 +94,12 @@ public:
       // The operation has been returned to the main io_context. The completion
       // handler is ready to be delivered.
 
-      // Take ownership of the operation's outstanding work.
-      handler_work<Handler, IoExecutor> w(o->handler_, o->io_executor_);
-
       ASIO_HANDLER_COMPLETION((*o));
+
+      // Take ownership of the operation's outstanding work.
+      handler_work<Handler, IoExecutor> w(
+          ASIO_MOVE_CAST2(handler_work<Handler, IoExecutor>)(
+            o->work_));
 
       // Make a copy of the handler so that the memory can be deallocated
       // before the upcall is made. Even if we're not about to make an upcall,
@@ -126,7 +127,7 @@ private:
   endpoint_type endpoint_;
   scheduler_impl& scheduler_;
   Handler handler_;
-  IoExecutor io_executor_;
+  handler_work<Handler, IoExecutor> work_;
   results_type results_;
 };
 
