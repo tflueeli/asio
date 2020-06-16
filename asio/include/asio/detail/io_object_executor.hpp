@@ -303,6 +303,16 @@ private:
 };
 
 } // namespace detail
+namespace execution {
+
+template <typename Executor, bool HasNativeImpl>
+struct is_executor<
+  asio::detail::io_object_executor<Executor, HasNativeImpl> > :
+    is_executor<Executor>
+{
+};
+
+} // namespace execution
 namespace traits {
 
 #if !defined(ASIO_HAS_DEDUCED_EXECUTE_MEMBER_TRAIT)
