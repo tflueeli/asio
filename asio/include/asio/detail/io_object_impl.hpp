@@ -91,8 +91,9 @@ public:
 
   // Construct an I/O object using an executor.
   explicit io_object_impl(const executor_type& ex)
-    : service_(&asio::use_service<IoObjectService>(ex.context())),
-      implementation_executor_(ex, (is_native_io_executor)(ex))
+    : implementation_executor_(ex, (is_native_io_executor)(ex)),
+      service_(&asio::use_service<IoObjectService>(
+            implementation_executor_.context()))
   {
     service_->construct(implementation_);
   }
@@ -102,9 +103,9 @@ public:
   explicit io_object_impl(ExecutionContext& context,
       typename enable_if<is_convertible<
         ExecutionContext&, execution_context&>::value>::type* = 0)
-    : service_(&asio::use_service<IoObjectService>(context)),
-      implementation_executor_(context.get_executor(),
-        is_same<ExecutionContext, io_context>::value)
+    : implementation_executor_(context.get_executor(),
+        is_same<ExecutionContext, io_context>::value),
+      service_(&asio::use_service<IoObjectService>(context))
   {
     service_->construct(implementation_);
   }
@@ -112,8 +113,8 @@ public:
 #if defined(ASIO_HAS_MOVE)
   // Move-construct an I/O object.
   io_object_impl(io_object_impl&& other)
-    : service_(&other.get_service()),
-      implementation_executor_(other.get_implementation_executor())
+    : implementation_executor_(other.get_implementation_executor()),
+      service_(&other.get_service())
   {
     service_->move_construct(implementation_, other.implementation_);
   }
@@ -121,9 +122,9 @@ public:
   // Perform a converting move-construction of an I/O object.
   template <typename IoObjectService1, typename Executor1>
   io_object_impl(io_object_impl<IoObjectService1, Executor1>&& other)
-    : service_(&asio::use_service<IoObjectService>(
-            other.get_implementation_executor().context())),
-      implementation_executor_(other.get_implementation_executor())
+    : implementation_executor_(other.get_implementation_executor()),
+      service_(&asio::use_service<IoObjectService>(
+            other.get_implementation_executor().context()))
   {
     service_->converting_move_construct(implementation_,
         other.get_service(), other.get_implementation());
@@ -195,14 +196,14 @@ private:
   io_object_impl(const io_object_impl&);
   io_object_impl& operator=(const io_object_impl&);
 
+  // The associated executor.
+  implementation_executor_type implementation_executor_;
+
   // The service associated with the I/O object.
   service_type* service_;
 
   // The underlying implementation of the I/O object.
   implementation_type implementation_;
-
-  // The associated executor.
-  implementation_executor_type implementation_executor_;
 };
 
 } // namespace detail
