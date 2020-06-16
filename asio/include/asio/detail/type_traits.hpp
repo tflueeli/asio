@@ -64,6 +64,7 @@ using std::is_destructible;
 using std::is_function;
 using std::is_nothrow_copy_constructible;
 using std::is_nothrow_destructible;
+using std::is_reference;
 using std::is_same;
 using std::remove_pointer;
 using std::remove_reference;
@@ -97,6 +98,7 @@ template <typename T>
 struct is_nothrow_copy_constructible : boost::has_nothrow_copy<T> {};
 template <typename T>
 struct is_nothrow_destructible : boost::has_nothrow_destructor<T> {};
+using boost::is_reference;
 using boost::is_same;
 using boost::remove_pointer;
 using boost::remove_reference;
